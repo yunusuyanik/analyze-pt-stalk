@@ -5,22 +5,10 @@ analyze-mysqladmin.py - it will turn collected MySQL variables values into nice 
   
 ## how to run
 
-clone the project
-
-```bash
-  git clone https://link-to-project
-```
-
-go to the folder
-
-```bash
-  cd my-project
-```
-
 install dependencies
 
 ```bash
-  pip install flask pandas plotly dash
+  pip install flask pandas plotly dash dash_bootstrap_components
 ```
 
 Sunucuyu çalıştırın
