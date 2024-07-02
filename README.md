@@ -11,7 +11,7 @@ install dependencies
   pip install flask pandas plotly dash dash_bootstrap_components
 ```
 
-Sunucuyu çalıştırın
+run the script
 
 ```bash
   python3 analyze-mysqladmin.py 1-mysqladmin
