@@ -8,7 +8,7 @@ analyze-mysqladmin.py - it will turn collected MySQL variables values into nice 
 install dependencies
 
 ```bash
-pip install flask pandas plotly dash dash_bootstrap_components
+pip install flask pandas plotly dash dash_bootstrap_components tqdm
 ```
 
 run the script
