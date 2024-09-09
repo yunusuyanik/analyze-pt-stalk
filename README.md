@@ -1,32 +1,22 @@
 
 # analyze-pt-stalk
 
-analyze-mysqladmin.py - it will turn collected MySQL variables values into nice graphical dashboards.
+It will turn collected MySQL variables values into nice graphical dashboards.
   
 ## how to run
-
-install dependencies
-
-```bash
-pip install flask pandas plotly dash dash_bootstrap_components tqdm
-```
 
 run the script
 
 ```bash
-python3 analyze-mysqladmin.py /pt-stalk/collected/
-Processing files: 100%|███████████████████████████████████████████| 10/10 [00:00<00:00, 10.83it/s]
-Dash is running on http://127.0.0.1:8050/
-
- * Serving Flask app 'test'
- * Debug mode: on
-
+$ go run main.go /path-to-pt-stalk/
+Processing file: /path-to-pt-stalk/2024_09_09_12_46_02-mysqladmin
+Processing file: /path-to-pt-stalk/2024_09_09_12_46_32-mysqladmin
+2024/09/09 16:58:47 Server started. Go to http://localhost:8080
+2024/09/09 16:58:51 Rendering template...
+2024/09/09 16:58:52 Rendering template...
 ```
 
-## features
+# Notes
 
-now the tool supported many pt-stalk outputs to compare each other
-
-```bash
-$ python3 analyze-mysqladmin.py /pt-stalk/collected/hostname1 /pt-stalk/collected/hostname2
-```
+The code was Python first, and then I converted into golang to have easy install, more beautiful charts and so on. We still have python version in here but I won't update anymore.
+  
