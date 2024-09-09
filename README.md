@@ -16,7 +16,7 @@ Processing file: /path-to-pt-stalk/2024_09_09_12_46_32-mysqladmin
 2024/09/09 16:58:52 Rendering template...
 ```
 
-# Notes
+## notes
 
 The code was Python first, and then I converted into golang to have easy install, more beautiful charts and so on. We still have python version in here but I won't update anymore.
   
