@@ -8,46 +8,74 @@ import (
     "net/http"
     "os"
     "path/filepath"
+    "regexp"
     "sort"
     "strconv"
     "strings"
+    "encoding/json"
 )
 
 // DataPoint stores a variable's name and its delta values, as well as the max, min, and avg value
 type DataPoint struct {
-    Name    string
-    Values  []int
-    Max     int
-    Min     int
-    Avg     float64
+    Name   string // Just the variable name (e.g., "Bytes_received")
+    Values []int64
+    Max    int64
+    Min    int64
+    Avg    float64
 }
 
-// GroupedData stores a prefix and its associated DataPoints
+// GroupedData (no longer directly used for display, but logic is similar)
+// Kept for conceptual clarity within the ChartForServer context
 type GroupedData struct {
     Prefix     string
     DataPoints []DataPoint
 }
 
-func multiply(a, b int) int {
-    return a * b
+// ChartForServer holds the DataPoints for ALL variables of a specific prefix on one server
+type ChartForServer struct {
+    ServerName string
+    // DataPoints now holds all DataPoint objects for this server and this prefix
+    DataPoints []DataPoint // A slice of DataPoint, one for each variable (e.g., Handler_commit, Handler_read_key)
 }
 
+// ChartGroupComparison holds charts for a specific variable prefix across all servers
+type ChartGroupComparison struct {
+    Prefix string // e.g., "Innodb", "Bytes", "Handler"
+    Charts []ChartForServer // Charts for this prefix, one for each server (e.g., Handler for server-a, Handler for server-b)
+}
+
+// PageData (modified to reflect the new top-level grouping)
+type PageData struct {
+    ChartComparisons []ChartGroupComparison // Top-level slice for the template
+    Labels           []string               // Common X-axis labels (Snapshot 1, Snapshot 2, ...)
+}
+
+// Helper functions (unchanged)
+func multiply(a, b int) int { return a * b }
 func formatAvg(avg float64) string {
-    if avg >= 1000 {
-        return fmt.Sprintf("%.0f", avg)
-    } else if avg >= 100 {
-        return fmt.Sprintf("%.1f", avg)
-    } else if avg >= 10 {
-        return fmt.Sprintf("%.2f", avg)
-    } else {
-        return fmt.Sprintf("%.3f", avg)
-    }
+    if avg >= 1000 { return fmt.Sprintf("%.0f", avg) } else if avg >= 100 { return fmt.Sprintf("%.1f", avg) } else if avg >= 10 { return fmt.Sprintf("%.2f", avg) } else { return fmt.Sprintf("%.3f", avg) }
+}
+func jsQuote(s string) template.JS { return template.JS(strconv.Quote(s)) }
+func toJSON(data interface{}) (template.JS, error) {
+    b, err := json.Marshal(data); if err != nil { return "", err }
+    return template.JS(b), nil
 }
 
-func processFile(filePath string, previousDataPoints map[string]int, deltaMap map[string][]int) {
+// Global regex to check if a string consists only of digits (optional leading minus sign)
+var numericRegex = regexp.MustCompile(`^-?\d+$`)
+
+
+// processFile reads a single pt-stalk output file and populates the nested deltaMap
+// `previousDataPoints` and `deltaMap` are now nested maps, allowing server-specific data.
+func processFile(
+    filePath string,
+    serverName string,
+    previousDataPoints map[string]map[string]int64, // server -> var -> last value
+    deltaMap map[string]map[string][]int64, // server -> var -> deltas
+) error {
     file, err := os.Open(filePath)
     if err != nil {
-        log.Fatalf("Failed to open file: %v", err)
+        return fmt.Errorf("failed to open file %s: %w", filePath, err)
     }
     defer file.Close()
 
@@ -58,33 +86,48 @@ func processFile(filePath string, previousDataPoints map[string]int, deltaMap ma
 
         if strings.HasPrefix(line, "|") && !strings.Contains(line, "+") {
             parts := strings.Split(line, "|")
-            if len(parts) < 3 {
-                continue
-            }
-            name := strings.TrimSpace(parts[1])
+            if len(parts) < 3 { continue }
+            name := strings.TrimSpace(parts[1]) // Original variable name
             valueStr := strings.TrimSpace(parts[2])
-            value, err := strconv.Atoi(valueStr)
+
+            // NEW: Normalize variable name to lowercase for consistency
+            name = strings.ToLower(name)
+
+            // Ensure the inner map for this server and variable exists
+            if _, ok := previousDataPoints[serverName]; !ok {
+                previousDataPoints[serverName] = make(map[string]int64)
+            }
+            if _, ok := deltaMap[serverName]; !ok {
+                deltaMap[serverName] = make(map[string][]int64)
+            }
+
+            // Proactively filter non-numeric strings
+            if !numericRegex.MatchString(valueStr) { continue }
+
+            value, err := strconv.ParseInt(valueStr, 10, 64)
             if err != nil {
+                log.Printf("Warning: Value '%s' for variable '%s' (server %s) in file %s is numeric but out of int64 range and will be skipped: %v", valueStr, name, serverName, filePath, err)
                 continue
             }
 
-            if strings.HasPrefix(name, "Threads_") {
-                // Threads ile başlayan değişkenler için delta yerine doğrudan değeri ekle
-                deltaMap[name] = append(deltaMap[name], value)
+            // Decide whether to store absolute value or delta
+            if strings.HasPrefix(name, "threads_") { // Use lowercase for prefix check
+                deltaMap[serverName][name] = append(deltaMap[serverName][name], value)
             } else {
-                if prevValue, exists := previousDataPoints[name]; exists {
+                if prevValue, exists := previousDataPoints[serverName][name]; exists {
                     delta := value - prevValue
-                    deltaMap[name] = append(deltaMap[name], delta)
+                    deltaMap[serverName][name] = append(deltaMap[serverName][name], delta)
                 }
             }
-
-            previousDataPoints[name] = value
+            // Update the previous value for this server and variable
+            previousDataPoints[serverName][name] = value
         }
     }
 
     if err := scanner.Err(); err != nil {
-        log.Fatalf("Error scanning file: %v", err)
+        return fmt.Errorf("error scanning file %s: %w", filePath, err)
     }
+    return nil
 }
 
 func main() {
@@ -94,17 +137,28 @@ func main() {
 
     rootDir := os.Args[1]
 
-    previousDataPoints := make(map[string]int)
-    deltaMap := make(map[string][]int)
+    // previousDataPoints: server -> variable -> last value
+    previousDataPoints := make(map[string]map[string]int64)
+    // deltaMap: server -> variable -> []deltas
+    deltaMap := make(map[string]map[string][]int64)
 
-    // Dosyaları bul ve sırayla işle
     err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
         if err != nil {
-            return err
+            log.Printf("Error accessing path %s: %v", path, err)
+            return nil
         }
+        
         if !info.IsDir() && strings.HasSuffix(path, "-mysqladmin") {
-            fmt.Printf("Processing file: %s\n", path)
-            processFile(path, previousDataPoints, deltaMap)
+            serverName := filepath.Base(filepath.Dir(path))
+            if serverName == "" || serverName == rootDir {
+                serverName = "default_server"
+            }
+
+            fmt.Printf("Processing file: %s (Server: %s)\n", path, serverName)
+
+            if processErr := processFile(path, serverName, previousDataPoints, deltaMap); processErr != nil {
+                log.Printf("Error processing file %s (Server: %s): %v", path, serverName, processErr)
+            }
         }
         return nil
     })
@@ -113,204 +167,155 @@ func main() {
         log.Fatalf("Error walking the directory: %v", err)
     }
 
-    groupedData := make(map[string][]DataPoint)
-    for name, deltas := range deltaMap {
-        allZero := true
-        for _, delta := range deltas {
-            if delta != 0 {
-                allZero = false
-                break
+    // Generate labels (Snapshot N) based on the maximum number of data points found across all data.
+    var allTimestamps []string
+    maxDataPoints := 0
+    for _, serverVars := range deltaMap {
+        for _, deltas := range serverVars {
+            if len(deltas) > maxDataPoints {
+                maxDataPoints = len(deltas)
             }
         }
-        if !allZero {
+    }
+    if maxDataPoints == 0 { maxDataPoints = 1 } 
+    
+    for i := 0; i < maxDataPoints; i++ {
+        allTimestamps = append(allTimestamps, fmt.Sprintf("Snapshot %d", i+1))
+    }
+
+    // Aggregate data into the ChartGroupComparison structure (Prefix -> Charts for each Server)
+    // tempMap: prefix -> serverName -> (map of varName -> DataPoint)
+    tempChartComparisonData := make(map[string]map[string]map[string]DataPoint) // prefix -> serverName -> varName -> DataPoint
+
+    var allUniqueServerNames []string // To maintain consistent server order for display
+    uniqueServers := make(map[string]bool)
+
+    // Iterate through processed data (server -> variable -> deltas)
+    for serverName, varsData := range deltaMap {
+        if _, exists := uniqueServers[serverName]; !exists {
+            allUniqueServerNames = append(allUniqueServerNames, serverName)
+            uniqueServers[serverName] = true
+        }
+
+        for varName, deltas := range varsData {
+            // Filter out variables with all zero deltas (as per your request)
+            allZero := true
+            for _, delta := range deltas {
+                if delta != 0 {
+                    allZero = false
+                    break
+                }
+            }
+            if allZero { continue } // Keep this filter active
+
+            // Determine prefix for this variable (using lowercase varName for consistency)
             var prefix string
-            if strings.HasPrefix(name, "Innodb_buffer_pool") {
+            lowerVarName := strings.ToLower(varName)
+            if strings.HasPrefix(lowerVarName, "innodb_buffer_pool") {
                 prefix = "Innodb_buffer_pool"
-            } else if strings.HasPrefix(name, "Innodb") {
+            } else if strings.HasPrefix(lowerVarName, "innodb_data") {
+                prefix = "Innodb_data"
+            } else if strings.HasPrefix(lowerVarName, "innodb") {
                 prefix = "Innodb"
             } else {
-                if idx := strings.Index(name, "_"); idx != -1 {
-                    prefix = name[:idx]
+                if idx := strings.Index(lowerVarName, "_"); idx != -1 {
+                    prefix = strings.Title(lowerVarName[:idx]) // Title case for common prefixes like "Handler"
                 } else {
-                    prefix = name
+                    prefix = strings.Title(lowerVarName)
                 }
             }
-            max, min, sum := deltas[0], deltas[0], 0
-            for _, v := range deltas {
-                if v > max {
-                    max = v
+
+            // Calculate Max, Min, Avg
+            var max, min, sum int64
+            var avg float64
+
+            if len(deltas) > 0 { // Calculate only if there are deltas
+                max, min, sum = deltas[0], deltas[0], int64(0)
+                for _, v := range deltas {
+                    if v > max { max = v }; if v < min { min = v }; sum += v
                 }
-                if v < min {
-                    min = v
-                }
-                sum += v
+                avg = float64(sum) / float64(len(deltas))
+            } else { // This case should ideally not be reached if allZero filter is active
+                max, min, sum = 0, 0, 0
+                avg = 0.0
             }
-            avg := float64(sum) / float64(len(deltas))
-            groupedData[prefix] = append(groupedData[prefix], DataPoint{Name: name, Values: deltas, Max: max, Min: min, Avg: avg})
+
+            // Store in temp map: prefix -> serverName -> varName -> DataPoint
+            if _, ok := tempChartComparisonData[prefix]; !ok {
+                tempChartComparisonData[prefix] = make(map[string]map[string]DataPoint)
+            }
+            if _, ok := tempChartComparisonData[prefix][serverName]; !ok {
+                tempChartComparisonData[prefix][serverName] = make(map[string]DataPoint)
+            }
+            tempChartComparisonData[prefix][serverName][varName] = DataPoint{Name: varName, Values: deltas, Max: max, Min: min, Avg: avg}
         }
     }
+    sort.Strings(allUniqueServerNames) // Sort server names alphabetically
 
-    var sortedGroups []GroupedData
-    for prefix, dataPoints := range groupedData {
-        if len(dataPoints) > 0 {
-            sort.Slice(dataPoints, func(i, j int) bool {
-                return dataPoints[i].Name < dataPoints[j].Name
+    // Convert temp map into final PageData structure
+    var finalChartComparisons []ChartGroupComparison
+    for prefix, serverDataMap := range tempChartComparisonData { // Iterate prefix -> map[serverName]map[varName]DataPoint
+        var chartsForThisPrefix []ChartForServer // Collect ChartForServer objects for this prefix
+
+        // Iterate through sorted server names to ensure consistent column order
+        for _, serverName := range allUniqueServerNames {
+            // Get all DataPoints for this server and this prefix
+            varsForServerPrefix, exists := serverDataMap[serverName]
+            
+            if !exists || len(varsForServerPrefix) == 0 {
+                // If this server has no data for this prefix, create an empty/dummy ChartForServer.
+                // This ensures its column appears in the grid for consistent layout, but with no data.
+                chartsForThisPrefix = append(chartsForThisPrefix, ChartForServer{
+                    ServerName: serverName,
+                    DataPoints: []DataPoint{}, // Empty slice means no lines will be drawn
+                })
+                continue
+            }
+
+            // Convert map of DataPoints to sorted slice for this ChartForServer
+            var sortedDataPointsForChart []DataPoint
+            for _, dp := range varsForServerPrefix {
+                sortedDataPointsForChart = append(sortedDataPointsForChart, dp)
+            }
+            sort.Slice(sortedDataPointsForChart, func(i, j int) bool {
+                return sortedDataPointsForChart[i].Name < sortedDataPointsForChart[j].Name
             })
-            sortedGroups = append(sortedGroups, GroupedData{Prefix: prefix, DataPoints: dataPoints})
+
+            // Add the ChartForServer for this server and prefix
+            chartsForThisPrefix = append(chartsForThisPrefix, ChartForServer{
+                ServerName: serverName,
+                DataPoints: sortedDataPointsForChart, // Contains all relevant DataPoints for this server/prefix
+            })
         }
+        // Sort ChartForServer objects within this prefix group by server name (already sorted by allUniqueServerNames)
+        // No need for sort.Slice(chartsForThisPrefix, ...) if allUniqueServerNames iteration is used correctly.
+
+        finalChartComparisons = append(finalChartComparisons, ChartGroupComparison{Prefix: prefix, Charts: chartsForThisPrefix})
     }
+    // Sort the top-level prefix groups by prefix name
+    sort.Slice(finalChartComparisons, func(i, j int) bool { return finalChartComparisons[i].Prefix < finalChartComparisons[j].Prefix })
 
-    sort.Slice(sortedGroups, func(i, j int) bool {
-        return sortedGroups[i].Prefix < sortedGroups[j].Prefix
-    })
 
-    tmpl := template.Must(template.New("chart").Funcs(template.FuncMap{
+    // Load the HTML template from the file system
+    tmpl := template.Must(template.New("chart.html").Funcs(template.FuncMap{
         "multiply":  multiply,
         "formatAvg": formatAvg,
-    }).Parse(chartTemplate))
+        "js":        jsQuote,
+        "toJSON":    toJSON,
+    }).ParseFiles("templates/chart.html"))
+
+    // Prepare the data to be passed to the template
+    dataToRender := PageData{
+        ChartComparisons: finalChartComparisons,
+        Labels:           allTimestamps,
+    }
 
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         log.Println("Rendering template...")
-        err := tmpl.Execute(w, sortedGroups)
-        if err != nil {
-            log.Printf("Error rendering template: %v", err)
-        }
+        err := tmpl.Execute(w, dataToRender)
+        if err != nil { log.Printf("Error rendering template: %v", err) }
     })
 
     log.Println("Server started. Go to http://localhost:8080")
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
-
-
-const chartTemplate = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Go Delta Charts</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        .chart-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            gap: 20px; /* Add space between chart items */
-        }
-        .chart-item {
-            width: 48%; /* Make each chart occupy half the width */
-            margin-bottom: 40px; /* Increase bottom margin for more space between rows */
-        }
-        table {
-            width: 100%;
-            margin-top: 3px;
-            border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 3px;
-        }
-        th {
-            background-color: #f2f2f2;
-            text-align: left;
-        }
-        canvas {
-            width: 100% !important;
-            height: auto !important;
-        }
-    </style>
-</head>
-<body>
-    <div class="container mt-5">
-        <h1 class="text-center">Delta Charts</h1>
-        <div class="chart-container">
-            {{range .}}
-            <div class="chart-item">
-                <h2>{{.Prefix}} Variables</h2>
-                <canvas id="{{.Prefix}}Chart" width="400" height="200"></canvas>
-                <table>
-                    <tr>
-                        <th>Name</th>
-                        <th>Max</th>
-                        <th>Min</th>
-                        <th>Avg</th>
-                    </tr>
-                    {{range .DataPoints}}
-                    <tr>
-                        <td>{{.Name}}</td>
-                        <td>{{.Max}}</td>
-                        <td>{{.Min}}</td>
-                        <td>{{formatAvg .Avg}}</td>
-                    </tr>
-                    {{end}}
-                </table>
-            </div>
-            <script>
-                console.log("Creating chart for: {{.Prefix}}");
-                var canvasElement = document.getElementById('{{.Prefix}}Chart');
-                var ctx = canvasElement.getContext('2d');
-                var labels = Array.from({length: {{len (index .DataPoints 0).Values}}}, (_, i) => i + 1);
-
-                var datasets = [
-                    {{range $index, $element := .DataPoints}}
-                    {
-                        label: "{{js $element.Name}}",
-                        data: [{{range $element.Values}}{{.}},{{end}}],
-                        borderColor: "hsl({{multiply $index 30}}, 70%, 50%)",
-                        backgroundColor: "hsla({{multiply $index 30}}, 70%, 50%, 0.2)",
-                        fill: true,
-                        borderWidth: 1,
-                        tension: 0.4,
-                        pointRadius: 2,
-                        pointHoverRadius: 4,
-                        pointBackgroundColor: "hsl({{multiply $index 30}}, 70%, 50%)"
-                    },
-                    {{end}}
-                ];
-
-                var myChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: datasets
-                    },
-                    options: {
-                        scales: {
-                            y: {
-                                beginAtZero: false
-                            }
-                        },
-                        plugins: {
-                            tooltip: {
-                                mode: 'index',
-                                intersect: false,
-                                callbacks: {
-                                    label: function(tooltipItem) {
-                                        return tooltipItem.dataset.label + ': ' + tooltipItem.raw;
-                                    }
-                                }
-                            },
-                            legend: {
-                                display: true,
-                                position: 'bottom'
-                            }
-                        },
-                        onClick: function(event, elements) {
-                            if (elements.length > 0) {
-                                const index = elements[0].index;
-                                const datasetIndex = elements[0].datasetIndex;
-                                const dataset = this.data.datasets[datasetIndex];
-                                dataset.hidden = !dataset.hidden;
-                                this.update();
-                            }
-                        }
-                    }
-                });
-            </script>
-            {{end}}
-        </div>
-    </div>
-</body>
-</html>
-` 
