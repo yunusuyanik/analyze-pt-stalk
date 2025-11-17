@@ -3,31 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MySQL Performance Dashboard - PT-Stalk Analyzer</title>
+    <title>MySQL Performance Dashboard</title>
     
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- ECharts -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <style>
-        :root {
-            --primary-color: #2563eb;
-            --secondary-color: #64748b;
-            --success-color: #10b981;
-            --danger-color: #ef4444;
-            --warning-color: #f59e0b;
-            --bg-color: #f8fafc;
-            --card-bg: #ffffff;
-            --border-color: #e2e8f0;
-            --text-primary: #1e293b;
-            --text-secondary: #64748b;
-        }
-
         * {
             margin: 0;
             padding: 0;
@@ -35,339 +15,242 @@
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #ffffff;
+            color: #1f2937;
             padding: 20px;
-            color: var(--text-primary);
+            line-height: 1.6;
         }
 
-        .dashboard-header {
-            background: var(--card-bg);
-            border-radius: 16px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        .header {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
             text-align: center;
         }
 
-        .dashboard-header h1 {
-            color: var(--primary-color);
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-        }
-
-        .dashboard-header p {
-            color: var(--text-secondary);
-            font-size: 1.1rem;
-            margin: 0;
-        }
-
-        .comparison-group-section {
-            background: var(--card-bg);
-            border-radius: 16px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .comparison-group-section:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
-        }
-
-        .comparison-group-title {
-            color: var(--primary-color);
-            margin-bottom: 30px;
-            text-align: center;
-            font-size: 1.8rem;
+        .header h1 {
+            color: #1f2937;
+            font-size: 1.75rem;
             font-weight: 600;
-            padding-bottom: 15px;
-            border-bottom: 3px solid var(--primary-color);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
+            margin-bottom: 8px;
         }
 
-        .charts-row-container {
+        .header p {
+            color: #6b7280;
+            font-size: 0.95rem;
+        }
+
+        .section {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .section-title {
+            color: #1f2937;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .charts-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 25px;
-            margin-bottom: 20px;
+            gap: 20px;
         }
 
         @media (max-width: 768px) {
-            .charts-row-container {
+            .charts-grid {
                 grid-template-columns: 1fr;
             }
         }
 
-        .chart-item-col {
-            background: var(--bg-color);
-            border: 2px solid var(--border-color);
-            border-radius: 12px;
-            padding: 20px;
-            transition: all 0.3s ease;
-        }
-
-        .chart-item-col:hover {
-            border-color: var(--primary-color);
-            box-shadow: 0 5px 15px rgba(37, 99, 235, 0.1);
-        }
-
-        .chart-item-col h3 {
-            color: var(--text-primary);
-            font-size: 1.3rem;
-            font-weight: 600;
-            margin-bottom: 20px;
-            text-align: center;
-            padding: 10px;
-            background: linear-gradient(135deg, var(--primary-color), #7c3aed);
-            color: white;
+        .chart-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
+            padding: 16px;
+        }
+
+        .chart-card h3 {
+            color: #1f2937;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            text-align: center;
+            padding: 8px;
+            background: #ffffff;
+            border-radius: 4px;
         }
 
         .chart-container {
             width: 100%;
-            height: 400px;
-            margin-bottom: 20px;
+            height: 350px;
+            margin-bottom: 16px;
         }
 
         .stats-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            font-size: 0.875rem;
         }
 
         .stats-table thead {
-            background: linear-gradient(135deg, var(--primary-color), #7c3aed);
-            color: white;
+            background: #f3f4f6;
         }
 
         .stats-table th {
-            padding: 12px;
+            padding: 10px;
             text-align: left;
             font-weight: 600;
-            font-size: 0.9rem;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
         }
 
         .stats-table td {
-            padding: 12px;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 0.9rem;
-        }
-
-        .stats-table tbody tr {
-            transition: background-color 0.2s ease;
+            padding: 10px;
+            border-bottom: 1px solid #e5e7eb;
+            color: #4b5563;
         }
 
         .stats-table tbody tr:hover {
-            background-color: #f1f5f9;
-        }
-
-        .stats-table tbody tr:last-child td {
-            border-bottom: none;
+            background: #f9fafb;
         }
 
         .badge {
             display: inline-block;
-            padding: 4px 8px;
+            padding: 3px 8px;
             border-radius: 4px;
             font-size: 0.75rem;
-            font-weight: 600;
+            font-weight: 500;
         }
 
         .badge-max {
-            background-color: #dbeafe;
+            background: #dbeafe;
             color: #1e40af;
         }
 
         .badge-min {
-            background-color: #fef3c7;
+            background: #fef3c7;
             color: #92400e;
         }
 
         .badge-avg {
-            background-color: #d1fae5;
+            background: #d1fae5;
             color: #065f46;
         }
 
         .empty-state {
             text-align: center;
             padding: 40px;
-            color: var(--text-secondary);
-        }
-
-        .empty-state i {
-            font-size: 3rem;
-            margin-bottom: 15px;
-            opacity: 0.5;
+            color: #9ca3af;
         }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="dashboard-header">
-            <h1>
-                <i class="fas fa-chart-line"></i>
-                MySQL Performance Dashboard
-            </h1>
-            <p>
-                <i class="fas fa-database"></i>
-                Analyzing <code>pt-stalk</code> output files for MySQL status variable trends
-            </p>
-        </div>
+    <div class="header">
+        <h1>MySQL Performance Dashboard</h1>
+        <p>Analyzing pt-stalk output files for MySQL status variable trends</p>
+    </div>
+    
+    {{range $comparisonGroup := .ChartComparisons}}
+    <div class="section">
+        <h2 class="section-title">{{$comparisonGroup.Prefix}} Variables</h2>
         
-        {{range $comparisonGroup := .ChartComparisons}}
-        <div class="comparison-group-section">
-            <h2 class="comparison-group-title">
-                <i class="fas fa-layer-group"></i>
-                {{$comparisonGroup.Prefix}} Variables
-            </h2>
-            
-            <div class="charts-row-container">
-                {{range $chartForServer := $comparisonGroup.Charts}}
-                <div class="chart-item-col">
-                    <h3>
-                        <i class="fas fa-server"></i>
-                        {{$chartForServer.ServerName}}
-                    </h3>
-                    
-                    {{if len $chartForServer.DataPoints}}
-                    <div class="chart-container" id="{{$comparisonGroup.Prefix}}-{{$chartForServer.ServerName}}-chart"></div>
-                    
-                    <table class="stats-table">
-                        <thead>
-                            <tr>
-                                <th><i class="fas fa-tag"></i> Variable Name</th>
-                                <th><i class="fas fa-arrow-up"></i> Max</th>
-                                <th><i class="fas fa-arrow-down"></i> Min</th>
-                                <th><i class="fas fa-calculator"></i> Avg</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{range .DataPoints}}
-                            <tr>
-                                <td><code>{{.Name}}</code></td>
-                                <td><span class="badge badge-max">{{.Max}}</span></td>
-                                <td><span class="badge badge-min">{{.Min}}</span></td>
-                                <td><span class="badge badge-avg">{{formatAvg .Avg}}</span></td>
-                            </tr>
-                            {{end}}
-                        </tbody>
-                    </table>
-                    {{else}}
-                    <div class="empty-state">
-                        <i class="fas fa-inbox"></i>
-                        <p>No data available for this server</p>
-                    </div>
-                    {{end}}
-                </div>
+        <div class="charts-grid">
+            {{range $chartForServer := $comparisonGroup.Charts}}
+            <div class="chart-card">
+                <h3>{{$chartForServer.ServerName}}</h3>
+                
+                {{if len $chartForServer.DataPoints}}
+                <div class="chart-container" id="{{$comparisonGroup.Prefix}}-{{$chartForServer.ServerName}}-chart"></div>
+                
+                <table class="stats-table">
+                    <thead>
+                        <tr>
+                            <th>Variable</th>
+                            <th>Max</th>
+                            <th>Min</th>
+                            <th>Avg</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .DataPoints}}
+                        <tr>
+                            <td><code>{{.Name}}</code></td>
+                            <td><span class="badge badge-max">{{.Max}}</span></td>
+                            <td><span class="badge badge-min">{{.Min}}</span></td>
+                            <td><span class="badge badge-avg">{{formatAvg .Avg}}</span></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+                {{else}}
+                <div class="empty-state">No data available</div>
                 {{end}}
             </div>
+            {{end}}
         </div>
-        {{end}}
     </div>
+    {{end}}
 
     <script>
-        // Color palette for charts
         const colorPalette = [
-            '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
-            '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#ff9f7f',
-            '#ffdb5c', '#ff6e76', '#e690d1', '#7cffb2', '#ffa07a'
+            '#3b82f6', '#10b981', '#fbbf24', '#f87171', '#60a5fa',
+            '#34d399', '#fcd34d', '#fb7185', '#818cf8', '#4ade80'
         ];
 
-        // Generate ECharts configuration
-        function createChartConfig(chartId, labels, datasets, serverName) {
+        function createChartConfig(labels, datasets) {
             const series = datasets.map((dataset, index) => ({
                 name: dataset.label,
                 type: 'line',
                 data: dataset.data,
                 smooth: true,
                 symbol: 'circle',
-                symbolSize: 6,
+                symbolSize: 4,
                 lineStyle: {
-                    width: 2.5,
+                    width: 2,
                     color: colorPalette[index % colorPalette.length]
                 },
                 itemStyle: {
-                    color: colorPalette[index % colorPalette.length],
-                    borderWidth: 2,
-                    borderColor: '#fff'
+                    color: colorPalette[index % colorPalette.length]
                 },
                 areaStyle: {
-                    opacity: 0.1,
-                    color: {
-                        type: 'linear',
-                        x: 0,
-                        y: 0,
-                        x2: 0,
-                        y2: 1,
-                        colorStops: [{
-                            offset: 0,
-                            color: colorPalette[index % colorPalette.length]
-                        }, {
-                            offset: 1,
-                            color: 'rgba(255, 255, 255, 0)'
-                        }]
-                    }
-                },
-                emphasis: {
-                    focus: 'series',
-                    lineStyle: {
-                        width: 3
-                    }
+                    opacity: 0.05,
+                    color: colorPalette[index % colorPalette.length]
                 }
             }));
 
             return {
                 tooltip: {
                     trigger: 'axis',
-                    axisPointer: {
-                        type: 'cross',
-                        label: {
-                            backgroundColor: '#6a7985'
-                        }
-                    },
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    borderColor: '#ccc',
+                    backgroundColor: '#ffffff',
+                    borderColor: '#e5e7eb',
                     borderWidth: 1,
                     textStyle: {
-                        color: '#333'
-                    },
-                    formatter: function(params) {
-                        let result = '<div style="padding: 5px;"><strong>' + params[0].axisValue + '</strong><br/>';
-                        params.forEach(function(item) {
-                            result += '<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:' + item.color + ';"></span>';
-                            result += item.seriesName + ': <strong>' + item.value + '</strong><br/>';
-                        });
-                        result += '</div>';
-                        return result;
+                        color: '#1f2937'
                     }
                 },
                 legend: {
                     data: datasets.map(d => d.label),
-                    bottom: 10,
-                    type: 'scroll',
+                    bottom: 0,
                     textStyle: {
-                        fontSize: 12
+                        fontSize: 11,
+                        color: '#6b7280'
                     }
                 },
                 grid: {
                     left: '3%',
                     right: '4%',
                     bottom: '15%',
-                    top: '10%',
+                    top: '5%',
                     containLabel: true
                 },
                 xAxis: {
@@ -376,23 +259,24 @@
                     data: labels,
                     axisLine: {
                         lineStyle: {
-                            color: '#999'
+                            color: '#d1d5db'
                         }
                     },
                     axisLabel: {
-                        color: '#666',
-                        rotate: 45
+                        color: '#6b7280',
+                        fontSize: 11
                     }
                 },
                 yAxis: {
                     type: 'value',
                     axisLine: {
                         lineStyle: {
-                            color: '#999'
+                            color: '#d1d5db'
                         }
                     },
                     axisLabel: {
-                        color: '#666',
+                        color: '#6b7280',
+                        fontSize: 11,
                         formatter: function(value) {
                             if (value >= 1000000) {
                                 return (value / 1000000).toFixed(1) + 'M';
@@ -405,32 +289,21 @@
                     splitLine: {
                         lineStyle: {
                             type: 'dashed',
-                            color: '#e0e0e0'
+                            color: '#e5e7eb'
                         }
                     }
                 },
-                dataZoom: [
-                    {
-                        type: 'inside',
-                        start: 0,
-                        end: 100
-                    },
-                    {
-                        type: 'slider',
-                        start: 0,
-                        end: 100,
-                        height: 20,
-                        bottom: 10
-                    }
-                ],
+                dataZoom: [{
+                    type: 'inside',
+                    start: 0,
+                    end: 100
+                }],
                 series: series,
                 animation: true,
-                animationDuration: 1000,
-                animationEasing: 'cubicOut'
+                animationDuration: 800
             };
         }
 
-        // Initialize all charts
         document.addEventListener('DOMContentLoaded', function() {
             {{range $comparisonGroup := .ChartComparisons}}
             {{range $chartForServer := $comparisonGroup.Charts}}
@@ -452,10 +325,8 @@
                     ];
                     
                     const chart = echarts.init(chartElement);
-                    const option = createChartConfig(chartId, labels, datasets, '{{$chartForServer.ServerName}}');
-                    chart.setOption(option);
+                    chart.setOption(createChartConfig(labels, datasets));
                     
-                    // Handle window resize
                     window.addEventListener('resize', function() {
                         chart.resize();
                     });

@@ -43,10 +43,6 @@ type PageData struct {
 }
 
 // Helper functions for template
-func multiply(a, b int) int {
-	return a * b
-}
-
 func sub(a, b int) int {
 	return a - b
 }
@@ -380,7 +376,6 @@ func main() {
 
 	// Load the HTML template
 	tmpl := template.Must(template.New("chart.html").Funcs(template.FuncMap{
-		"multiply":  multiply,
 		"sub":       sub,
 		"formatAvg": formatAvg,
 		"js":        jsQuote,
