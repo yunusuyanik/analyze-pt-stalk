@@ -27,17 +27,39 @@ cd analyze-pt-stalk
 
 ## Usage
 
-Run the application with the path to your pt-stalk output directory:
+### Option 1: Using Make (Recommended)
+
+```bash
+make build
+./analyze-pt-stalk /path-to-pt-stalk/
+```
+
+Or build and run in one command:
+
+```bash
+make run ARGS="/path-to-pt-stalk/"
+```
+
+### Option 2: Using Build Script
+
+```bash
+./build.sh
+./analyze-pt-stalk /path-to-pt-stalk/
+```
+
+### Option 3: Manual Build (with CGO disabled)
+
+**Important**: On macOS, you must disable CGO to avoid LC_UUID errors:
+
+```bash
+CGO_ENABLED=0 go build -ldflags="-s -w" -o analyze-pt-stalk main.go
+./analyze-pt-stalk /path-to-pt-stalk/
+```
+
+### Option 4: Run directly (for development)
 
 ```bash
 go run main.go /path-to-pt-stalk/
-```
-
-Or build and run:
-
-```bash
-go build -o analyze-pt-stalk main.go
-./analyze-pt-stalk /path-to-pt-stalk/
 ```
 
 The server will start on `http://localhost:8080`. Open this URL in your browser to view the dashboard.
