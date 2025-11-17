@@ -1,321 +1,407 @@
 package main
 
 import (
-    "bufio"
-    "fmt"
-    "html/template"
-    "log"
-    "net/http"
-    "os"
-    "path/filepath"
-    "regexp"
-    "sort"
-    "strconv"
-    "strings"
-    "encoding/json"
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 )
 
-// DataPoint stores a variable's name and its delta values, as well as the max, min, and avg value
+// DataPoint stores a variable's name and its delta values, as well as statistics
 type DataPoint struct {
-    Name   string // Just the variable name (e.g., "Bytes_received")
-    Values []int64
-    Max    int64
-    Min    int64
-    Avg    float64
+	Name   string  // Variable name (e.g., "Bytes_received")
+	Values []int64 // Delta values for each snapshot
+	Max    int64   // Maximum delta value
+	Min    int64   // Minimum delta value
+	Avg    float64 // Average delta value
 }
 
-// GroupedData (no longer directly used for display, but logic is similar)
-// Kept for conceptual clarity within the ChartForServer context
-type GroupedData struct {
-    Prefix     string
-    DataPoints []DataPoint
-}
-
-// ChartForServer holds the DataPoints for ALL variables of a specific prefix on one server
+// ChartForServer holds the DataPoints for all variables of a specific prefix on one server
 type ChartForServer struct {
-    ServerName string
-    // DataPoints now holds all DataPoint objects for this server and this prefix
-    DataPoints []DataPoint // A slice of DataPoint, one for each variable (e.g., Handler_commit, Handler_read_key)
+	ServerName string      // Server identifier
+	DataPoints []DataPoint // All DataPoints for this server and prefix
 }
 
 // ChartGroupComparison holds charts for a specific variable prefix across all servers
 type ChartGroupComparison struct {
-    Prefix string // e.g., "Innodb", "Bytes", "Handler"
-    Charts []ChartForServer // Charts for this prefix, one for each server (e.g., Handler for server-a, Handler for server-b)
+	Prefix string           // Variable prefix (e.g., "Innodb", "Bytes", "Handler")
+	Charts []ChartForServer // Charts for this prefix, one for each server
 }
 
-// PageData (modified to reflect the new top-level grouping)
+// PageData holds all data to be rendered in the template
 type PageData struct {
-    ChartComparisons []ChartGroupComparison // Top-level slice for the template
-    Labels           []string               // Common X-axis labels (Snapshot 1, Snapshot 2, ...)
+	ChartComparisons []ChartGroupComparison // Top-level slice for the template
+	Labels           []string               // Common X-axis labels (Snapshot 1, Snapshot 2, ...)
 }
 
-// Helper functions (unchanged)
-func multiply(a, b int) int { return a * b }
-func formatAvg(avg float64) string {
-    if avg >= 1000 { return fmt.Sprintf("%.0f", avg) } else if avg >= 100 { return fmt.Sprintf("%.1f", avg) } else if avg >= 10 { return fmt.Sprintf("%.2f", avg) } else { return fmt.Sprintf("%.3f", avg) }
+// Helper functions for template
+func multiply(a, b int) int {
+	return a * b
 }
-func jsQuote(s string) template.JS { return template.JS(strconv.Quote(s)) }
+
+func sub(a, b int) int {
+	return a - b
+}
+
+func formatAvg(avg float64) string {
+	if avg >= 1000 {
+		return fmt.Sprintf("%.0f", avg)
+	} else if avg >= 100 {
+		return fmt.Sprintf("%.1f", avg)
+	} else if avg >= 10 {
+		return fmt.Sprintf("%.2f", avg)
+	}
+	return fmt.Sprintf("%.3f", avg)
+}
+
+func jsQuote(s string) template.JS {
+	return template.JS(strconv.Quote(s))
+}
+
 func toJSON(data interface{}) (template.JS, error) {
-    b, err := json.Marshal(data); if err != nil { return "", err }
-    return template.JS(b), nil
+	b, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	return template.JS(b), nil
 }
 
 // Global regex to check if a string consists only of digits (optional leading minus sign)
 var numericRegex = regexp.MustCompile(`^-?\d+$`)
 
-
 // processFile reads a single pt-stalk output file and populates the nested deltaMap
-// `previousDataPoints` and `deltaMap` are now nested maps, allowing server-specific data.
 func processFile(
-    filePath string,
-    serverName string,
-    previousDataPoints map[string]map[string]int64, // server -> var -> last value
-    deltaMap map[string]map[string][]int64, // server -> var -> deltas
+	filePath string,
+	serverName string,
+	previousDataPoints map[string]map[string]int64, // server -> var -> last value
+	deltaMap map[string]map[string][]int64,         // server -> var -> deltas
 ) error {
-    file, err := os.Open(filePath)
-    if err != nil {
-        return fmt.Errorf("failed to open file %s: %w", filePath, err)
-    }
-    defer file.Close()
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", filePath, err)
+	}
+	defer file.Close()
 
-    scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(file)
 
-    for scanner.Scan() {
-        line := scanner.Text()
+	for scanner.Scan() {
+		line := scanner.Text()
 
-        if strings.HasPrefix(line, "|") && !strings.Contains(line, "+") {
-            parts := strings.Split(line, "|")
-            if len(parts) < 3 { continue }
-            name := strings.TrimSpace(parts[1]) // Original variable name
-            valueStr := strings.TrimSpace(parts[2])
+		// Parse lines that start with "|" and don't contain "+" (header separator)
+		if strings.HasPrefix(line, "|") && !strings.Contains(line, "+") {
+			parts := strings.Split(line, "|")
+			if len(parts) < 3 {
+				continue
+			}
 
-            // NEW: Normalize variable name to lowercase for consistency
-            name = strings.ToLower(name)
+			name := strings.TrimSpace(parts[1])
+			valueStr := strings.TrimSpace(parts[2])
 
-            // Ensure the inner map for this server and variable exists
-            if _, ok := previousDataPoints[serverName]; !ok {
-                previousDataPoints[serverName] = make(map[string]int64)
-            }
-            if _, ok := deltaMap[serverName]; !ok {
-                deltaMap[serverName] = make(map[string][]int64)
-            }
+			// Normalize variable name to lowercase for consistency
+			name = strings.ToLower(name)
 
-            // Proactively filter non-numeric strings
-            if !numericRegex.MatchString(valueStr) { continue }
+			// Ensure the inner map for this server and variable exists
+			if _, ok := previousDataPoints[serverName]; !ok {
+				previousDataPoints[serverName] = make(map[string]int64)
+			}
+			if _, ok := deltaMap[serverName]; !ok {
+				deltaMap[serverName] = make(map[string][]int64)
+			}
 
-            value, err := strconv.ParseInt(valueStr, 10, 64)
-            if err != nil {
-                log.Printf("Warning: Value '%s' for variable '%s' (server %s) in file %s is numeric but out of int64 range and will be skipped: %v", valueStr, name, serverName, filePath, err)
-                continue
-            }
+			// Filter non-numeric strings
+			if !numericRegex.MatchString(valueStr) {
+				continue
+			}
 
-            // Decide whether to store absolute value or delta
-            if strings.HasPrefix(name, "threads_") { // Use lowercase for prefix check
-                deltaMap[serverName][name] = append(deltaMap[serverName][name], value)
-            } else {
-                if prevValue, exists := previousDataPoints[serverName][name]; exists {
-                    delta := value - prevValue
-                    deltaMap[serverName][name] = append(deltaMap[serverName][name], delta)
-                }
-            }
-            // Update the previous value for this server and variable
-            previousDataPoints[serverName][name] = value
-        }
-    }
+			value, err := strconv.ParseInt(valueStr, 10, 64)
+			if err != nil {
+				log.Printf("Warning: Value '%s' for variable '%s' (server %s) in file %s is out of int64 range: %v",
+					valueStr, name, serverName, filePath, err)
+				continue
+			}
 
-    if err := scanner.Err(); err != nil {
-        return fmt.Errorf("error scanning file %s: %w", filePath, err)
-    }
-    return nil
+			// Decide whether to store absolute value or delta
+			if strings.HasPrefix(name, "threads_") {
+				// For threads, store absolute value
+				deltaMap[serverName][name] = append(deltaMap[serverName][name], value)
+			} else {
+				// For other variables, calculate delta
+				if prevValue, exists := previousDataPoints[serverName][name]; exists {
+					delta := value - prevValue
+					deltaMap[serverName][name] = append(deltaMap[serverName][name], delta)
+				}
+			}
+
+			// Update the previous value for this server and variable
+			previousDataPoints[serverName][name] = value
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error scanning file %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// titleCase converts first letter to uppercase
+func titleCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// determinePrefix determines the variable prefix based on the variable name
+func determinePrefix(varName string) string {
+	lowerVarName := strings.ToLower(varName)
+
+	if strings.HasPrefix(lowerVarName, "innodb_buffer_pool") {
+		return "Innodb_buffer_pool"
+	} else if strings.HasPrefix(lowerVarName, "innodb_data") {
+		return "Innodb_data"
+	} else if strings.HasPrefix(lowerVarName, "innodb") {
+		return "Innodb"
+	}
+
+	// Extract prefix from first underscore
+	if idx := strings.Index(lowerVarName, "_"); idx != -1 {
+		return titleCase(lowerVarName[:idx])
+	}
+
+	return titleCase(lowerVarName)
+}
+
+// calculateStats calculates max, min, and average from a slice of deltas
+func calculateStats(deltas []int64) (max, min int64, avg float64) {
+	if len(deltas) == 0 {
+		return 0, 0, 0.0
+	}
+
+	max, min = deltas[0], deltas[0]
+	var sum int64
+
+	for _, v := range deltas {
+		if v > max {
+			max = v
+		}
+		if v < min {
+			min = v
+		}
+		sum += v
+	}
+
+	avg = float64(sum) / float64(len(deltas))
+	return max, min, avg
+}
+
+// hasNonZeroDelta checks if any delta in the slice is non-zero
+func hasNonZeroDelta(deltas []int64) bool {
+	for _, delta := range deltas {
+		if delta != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// processDirectory walks through the directory and processes all pt-stalk files
+func processDirectory(rootDir string) (map[string]map[string][]int64, []string, error) {
+	previousDataPoints := make(map[string]map[string]int64) // server -> var -> last value
+	deltaMap := make(map[string]map[string][]int64)         // server -> var -> []deltas
+	uniqueServers := make(map[string]bool)
+	var allUniqueServerNames []string
+
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Printf("Error accessing path %s: %v", path, err)
+			return nil
+		}
+
+		if !info.IsDir() && strings.HasSuffix(path, "-mysqladmin") {
+			serverName := filepath.Base(filepath.Dir(path))
+			if serverName == "" || serverName == rootDir {
+				serverName = "default_server"
+			}
+
+			if !uniqueServers[serverName] {
+				allUniqueServerNames = append(allUniqueServerNames, serverName)
+				uniqueServers[serverName] = true
+			}
+
+			fmt.Printf("Processing file: %s (Server: %s)\n", path, serverName)
+
+			if processErr := processFile(path, serverName, previousDataPoints, deltaMap); processErr != nil {
+				log.Printf("Error processing file %s (Server: %s): %v", path, serverName, processErr)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("error walking directory: %w", err)
+	}
+
+	sort.Strings(allUniqueServerNames)
+	return deltaMap, allUniqueServerNames, nil
+}
+
+// aggregateData converts the deltaMap into ChartGroupComparison structure
+func aggregateData(deltaMap map[string]map[string][]int64, allUniqueServerNames []string) []ChartGroupComparison {
+	// tempMap: prefix -> serverName -> (map of varName -> DataPoint)
+	tempChartComparisonData := make(map[string]map[string]map[string]DataPoint)
+
+	// Iterate through processed data (server -> variable -> deltas)
+	for serverName, varsData := range deltaMap {
+		for varName, deltas := range varsData {
+			// Filter out variables with all zero deltas
+			if !hasNonZeroDelta(deltas) {
+				continue
+			}
+
+			prefix := determinePrefix(varName)
+			max, min, avg := calculateStats(deltas)
+
+			// Store in temp map: prefix -> serverName -> varName -> DataPoint
+			if _, ok := tempChartComparisonData[prefix]; !ok {
+				tempChartComparisonData[prefix] = make(map[string]map[string]DataPoint)
+			}
+			if _, ok := tempChartComparisonData[prefix][serverName]; !ok {
+				tempChartComparisonData[prefix][serverName] = make(map[string]DataPoint)
+			}
+
+			tempChartComparisonData[prefix][serverName][varName] = DataPoint{
+				Name:   varName,
+				Values: deltas,
+				Max:    max,
+				Min:    min,
+				Avg:    avg,
+			}
+		}
+	}
+
+	// Convert temp map into final ChartGroupComparison structure
+	var finalChartComparisons []ChartGroupComparison
+
+	for prefix, serverDataMap := range tempChartComparisonData {
+		var chartsForThisPrefix []ChartForServer
+
+		// Iterate through sorted server names to ensure consistent order
+		for _, serverName := range allUniqueServerNames {
+			varsForServerPrefix, exists := serverDataMap[serverName]
+
+			if !exists || len(varsForServerPrefix) == 0 {
+				// Create empty ChartForServer for consistent layout
+				chartsForThisPrefix = append(chartsForThisPrefix, ChartForServer{
+					ServerName: serverName,
+					DataPoints: []DataPoint{},
+				})
+				continue
+			}
+
+			// Convert map of DataPoints to sorted slice
+			var sortedDataPointsForChart []DataPoint
+			for _, dp := range varsForServerPrefix {
+				sortedDataPointsForChart = append(sortedDataPointsForChart, dp)
+			}
+
+			sort.Slice(sortedDataPointsForChart, func(i, j int) bool {
+				return sortedDataPointsForChart[i].Name < sortedDataPointsForChart[j].Name
+			})
+
+			chartsForThisPrefix = append(chartsForThisPrefix, ChartForServer{
+				ServerName: serverName,
+				DataPoints: sortedDataPointsForChart,
+			})
+		}
+
+		finalChartComparisons = append(finalChartComparisons, ChartGroupComparison{
+			Prefix: prefix,
+			Charts: chartsForThisPrefix,
+		})
+	}
+
+	// Sort the top-level prefix groups by prefix name
+	sort.Slice(finalChartComparisons, func(i, j int) bool {
+		return finalChartComparisons[i].Prefix < finalChartComparisons[j].Prefix
+	})
+
+	return finalChartComparisons
+}
+
+// generateLabels generates snapshot labels based on the maximum number of data points
+func generateLabels(deltaMap map[string]map[string][]int64) []string {
+	maxDataPoints := 0
+	for _, serverVars := range deltaMap {
+		for _, deltas := range serverVars {
+			if len(deltas) > maxDataPoints {
+				maxDataPoints = len(deltas)
+			}
+		}
+	}
+
+	if maxDataPoints == 0 {
+		maxDataPoints = 1
+	}
+
+	var labels []string
+	for i := 0; i < maxDataPoints; i++ {
+		labels = append(labels, fmt.Sprintf("Snapshot %d", i+1))
+	}
+
+	return labels
 }
 
 func main() {
-    if len(os.Args) < 2 {
-        log.Fatal("Please specify a directory. Usage: go run main.go <directory>")
-    }
+	if len(os.Args) < 2 {
+		log.Fatal("Please specify a directory. Usage: go run main.go <directory>")
+	}
 
-    rootDir := os.Args[1]
+	rootDir := os.Args[1]
 
-    // previousDataPoints: server -> variable -> last value
-    previousDataPoints := make(map[string]map[string]int64)
-    // deltaMap: server -> variable -> []deltas
-    deltaMap := make(map[string]map[string][]int64)
+	// Process all files in the directory
+	deltaMap, allUniqueServerNames, err := processDirectory(rootDir)
+	if err != nil {
+		log.Fatalf("Error processing directory: %v", err)
+	}
 
-    err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            log.Printf("Error accessing path %s: %v", path, err)
-            return nil
-        }
-        
-        if !info.IsDir() && strings.HasSuffix(path, "-mysqladmin") {
-            serverName := filepath.Base(filepath.Dir(path))
-            if serverName == "" || serverName == rootDir {
-                serverName = "default_server"
-            }
+	// Generate labels
+	labels := generateLabels(deltaMap)
 
-            fmt.Printf("Processing file: %s (Server: %s)\n", path, serverName)
+	// Aggregate data into ChartGroupComparison structure
+	chartComparisons := aggregateData(deltaMap, allUniqueServerNames)
 
-            if processErr := processFile(path, serverName, previousDataPoints, deltaMap); processErr != nil {
-                log.Printf("Error processing file %s (Server: %s): %v", path, serverName, processErr)
-            }
-        }
-        return nil
-    })
+	// Load the HTML template
+	tmpl := template.Must(template.New("chart.html").Funcs(template.FuncMap{
+		"multiply":  multiply,
+		"sub":       sub,
+		"formatAvg": formatAvg,
+		"js":        jsQuote,
+		"toJSON":    toJSON,
+	}).ParseFiles("templates/chart.html"))
 
-    if err != nil {
-        log.Fatalf("Error walking the directory: %v", err)
-    }
+	// Prepare the data to be passed to the template
+	dataToRender := PageData{
+		ChartComparisons: chartComparisons,
+		Labels:           labels,
+	}
 
-    // Generate labels (Snapshot N) based on the maximum number of data points found across all data.
-    var allTimestamps []string
-    maxDataPoints := 0
-    for _, serverVars := range deltaMap {
-        for _, deltas := range serverVars {
-            if len(deltas) > maxDataPoints {
-                maxDataPoints = len(deltas)
-            }
-        }
-    }
-    if maxDataPoints == 0 { maxDataPoints = 1 } 
-    
-    for i := 0; i < maxDataPoints; i++ {
-        allTimestamps = append(allTimestamps, fmt.Sprintf("Snapshot %d", i+1))
-    }
+	// Set up HTTP server
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Rendering template...")
+		if err := tmpl.Execute(w, dataToRender); err != nil {
+			log.Printf("Error rendering template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	})
 
-    // Aggregate data into the ChartGroupComparison structure (Prefix -> Charts for each Server)
-    // tempMap: prefix -> serverName -> (map of varName -> DataPoint)
-    tempChartComparisonData := make(map[string]map[string]map[string]DataPoint) // prefix -> serverName -> varName -> DataPoint
-
-    var allUniqueServerNames []string // To maintain consistent server order for display
-    uniqueServers := make(map[string]bool)
-
-    // Iterate through processed data (server -> variable -> deltas)
-    for serverName, varsData := range deltaMap {
-        if _, exists := uniqueServers[serverName]; !exists {
-            allUniqueServerNames = append(allUniqueServerNames, serverName)
-            uniqueServers[serverName] = true
-        }
-
-        for varName, deltas := range varsData {
-            // Filter out variables with all zero deltas (as per your request)
-            allZero := true
-            for _, delta := range deltas {
-                if delta != 0 {
-                    allZero = false
-                    break
-                }
-            }
-            if allZero { continue } // Keep this filter active
-
-            // Determine prefix for this variable (using lowercase varName for consistency)
-            var prefix string
-            lowerVarName := strings.ToLower(varName)
-            if strings.HasPrefix(lowerVarName, "innodb_buffer_pool") {
-                prefix = "Innodb_buffer_pool"
-            } else if strings.HasPrefix(lowerVarName, "innodb_data") {
-                prefix = "Innodb_data"
-            } else if strings.HasPrefix(lowerVarName, "innodb") {
-                prefix = "Innodb"
-            } else {
-                if idx := strings.Index(lowerVarName, "_"); idx != -1 {
-                    prefix = strings.Title(lowerVarName[:idx]) // Title case for common prefixes like "Handler"
-                } else {
-                    prefix = strings.Title(lowerVarName)
-                }
-            }
-
-            // Calculate Max, Min, Avg
-            var max, min, sum int64
-            var avg float64
-
-            if len(deltas) > 0 { // Calculate only if there are deltas
-                max, min, sum = deltas[0], deltas[0], int64(0)
-                for _, v := range deltas {
-                    if v > max { max = v }; if v < min { min = v }; sum += v
-                }
-                avg = float64(sum) / float64(len(deltas))
-            } else { // This case should ideally not be reached if allZero filter is active
-                max, min, sum = 0, 0, 0
-                avg = 0.0
-            }
-
-            // Store in temp map: prefix -> serverName -> varName -> DataPoint
-            if _, ok := tempChartComparisonData[prefix]; !ok {
-                tempChartComparisonData[prefix] = make(map[string]map[string]DataPoint)
-            }
-            if _, ok := tempChartComparisonData[prefix][serverName]; !ok {
-                tempChartComparisonData[prefix][serverName] = make(map[string]DataPoint)
-            }
-            tempChartComparisonData[prefix][serverName][varName] = DataPoint{Name: varName, Values: deltas, Max: max, Min: min, Avg: avg}
-        }
-    }
-    sort.Strings(allUniqueServerNames) // Sort server names alphabetically
-
-    // Convert temp map into final PageData structure
-    var finalChartComparisons []ChartGroupComparison
-    for prefix, serverDataMap := range tempChartComparisonData { // Iterate prefix -> map[serverName]map[varName]DataPoint
-        var chartsForThisPrefix []ChartForServer // Collect ChartForServer objects for this prefix
-
-        // Iterate through sorted server names to ensure consistent column order
-        for _, serverName := range allUniqueServerNames {
-            // Get all DataPoints for this server and this prefix
-            varsForServerPrefix, exists := serverDataMap[serverName]
-            
-            if !exists || len(varsForServerPrefix) == 0 {
-                // If this server has no data for this prefix, create an empty/dummy ChartForServer.
-                // This ensures its column appears in the grid for consistent layout, but with no data.
-                chartsForThisPrefix = append(chartsForThisPrefix, ChartForServer{
-                    ServerName: serverName,
-                    DataPoints: []DataPoint{}, // Empty slice means no lines will be drawn
-                })
-                continue
-            }
-
-            // Convert map of DataPoints to sorted slice for this ChartForServer
-            var sortedDataPointsForChart []DataPoint
-            for _, dp := range varsForServerPrefix {
-                sortedDataPointsForChart = append(sortedDataPointsForChart, dp)
-            }
-            sort.Slice(sortedDataPointsForChart, func(i, j int) bool {
-                return sortedDataPointsForChart[i].Name < sortedDataPointsForChart[j].Name
-            })
-
-            // Add the ChartForServer for this server and prefix
-            chartsForThisPrefix = append(chartsForThisPrefix, ChartForServer{
-                ServerName: serverName,
-                DataPoints: sortedDataPointsForChart, // Contains all relevant DataPoints for this server/prefix
-            })
-        }
-        // Sort ChartForServer objects within this prefix group by server name (already sorted by allUniqueServerNames)
-        // No need for sort.Slice(chartsForThisPrefix, ...) if allUniqueServerNames iteration is used correctly.
-
-        finalChartComparisons = append(finalChartComparisons, ChartGroupComparison{Prefix: prefix, Charts: chartsForThisPrefix})
-    }
-    // Sort the top-level prefix groups by prefix name
-    sort.Slice(finalChartComparisons, func(i, j int) bool { return finalChartComparisons[i].Prefix < finalChartComparisons[j].Prefix })
-
-
-    // Load the HTML template from the file system
-    tmpl := template.Must(template.New("chart.html").Funcs(template.FuncMap{
-        "multiply":  multiply,
-        "formatAvg": formatAvg,
-        "js":        jsQuote,
-        "toJSON":    toJSON,
-    }).ParseFiles("templates/chart.html"))
-
-    // Prepare the data to be passed to the template
-    dataToRender := PageData{
-        ChartComparisons: finalChartComparisons,
-        Labels:           allTimestamps,
-    }
-
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        log.Println("Rendering template...")
-        err := tmpl.Execute(w, dataToRender)
-        if err != nil { log.Printf("Error rendering template: %v", err) }
-    })
-
-    log.Println("Server started. Go to http://localhost:8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("Server started. Go to http://localhost:8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

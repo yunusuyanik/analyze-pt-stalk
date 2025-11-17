@@ -3,236 +3,468 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Go Delta Charts</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>MySQL Performance Dashboard - PT-Stalk Analyzer</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
+        :root {
+            --primary-color: #2563eb;
+            --secondary-color: #64748b;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f4f7f6;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--text-primary);
         }
-        h1 {
-            color: #2c3e50;
+
+        .dashboard-header {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 30px;
             margin-bottom: 30px;
-            padding-top: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            text-align: center;
         }
-        p.text-muted {
-            margin-bottom: 40px;
+
+        .dashboard-header h1 {
+            color: var(--primary-color);
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .dashboard-header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin: 0;
         }
 
         .comparison-group-section {
-            margin-bottom: 60px;
-            border: 1px solid #dcdcdc;
-            border-radius: 12px;
+            background: var(--card-bg);
+            border-radius: 16px;
             padding: 30px;
-            background-color: #ffffff;
-            box-shadow: 0 6px 12px rgba(0,0,0,0.08);
+            margin-bottom: 30px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
+
+        .comparison-group-section:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+        }
+
         .comparison-group-title {
-            color: #34495e;
+            color: var(--primary-color);
             margin-bottom: 30px;
             text-align: center;
-            font-size: 2.2rem;
+            font-size: 1.8rem;
             font-weight: 600;
+            padding-bottom: 15px;
+            border-bottom: 3px solid var(--primary-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
         }
 
         .charts-row-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-around;
-            gap: 10px; /* CHANGED: Reduced gap from 25px to 10px */
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 25px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .charts-row-container {
+                grid-template-columns: 1fr;
+            }
         }
 
         .chart-item-col {
-            width: 100%;
-            max-width: 600px;
-            margin-bottom: 30px;
-            background-color: #fdfdfd;
-            border: 1px solid #e9e9e9;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
             padding: 20px;
-            text-align: center;
+            transition: all 0.3s ease;
         }
 
-        @media (min-width: 992px) {
-            .charts-row-container .chart-item-col {
-                width: calc(50% - 5px); /* CHANGED: Adjusted for 10px gap (10px / 2 items) */
-            }
+        .chart-item-col:hover {
+            border-color: var(--primary-color);
+            box-shadow: 0 5px 15px rgba(37, 99, 235, 0.1);
         }
-        @media (min-width: 1400px) {
-            .charts-row-container .chart-item-col {
-                width: calc(33.333% - 6.66px); /* CHANGED: Adjusted for 10px gap ((10px * 2) / 3 items) */
-            }
+
+        .chart-item-col h3 {
+            color: var(--text-primary);
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            text-align: center;
+            padding: 10px;
+            background: linear-gradient(135deg, var(--primary-color), #7c3aed);
+            color: white;
+            border-radius: 8px;
         }
-        
-        table {
+
+        .chart-container {
             width: 100%;
-            margin-top: 20px;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+
+        .stats-table {
+            width: 100%;
             border-collapse: collapse;
+            margin-top: 20px;
             border-radius: 8px;
             overflow: hidden;
-            font-size: 0.9em;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 10px;
+
+        .stats-table thead {
+            background: linear-gradient(135deg, var(--primary-color), #7c3aed);
+            color: white;
+        }
+
+        .stats-table th {
+            padding: 12px;
             text-align: left;
+            font-weight: 600;
+            font-size: 0.9rem;
         }
-        th {
-            background-color: #f2f2f2;
-            font-weight: bold;
+
+        .stats-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.9rem;
         }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
+
+        .stats-table tbody tr {
+            transition: background-color 0.2s ease;
         }
-        canvas {
-            width: 100% !important;
-            height: auto !important;
-            max-height: 500px;
+
+        .stats-table tbody tr:hover {
+            background-color: #f1f5f9;
         }
-        h3 {
-            color: #555;
-            font-size: 1.4rem;
+
+        .stats-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-max {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+
+        .badge-min {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-avg {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state i {
+            font-size: 3rem;
             margin-bottom: 15px;
+            opacity: 0.5;
         }
     </style>
 </head>
 <body>
-    <div class="container-fluid mt-5">
-        <h1 class="text-center">MySQL Delta Charts</h1>
-        <p class="text-center text-muted">Analyzing <code>pt-stalk</code> output files for MySQL status variable trends.</p>
+    <div class="container-fluid">
+        <div class="dashboard-header">
+            <h1>
+                <i class="fas fa-chart-line"></i>
+                MySQL Performance Dashboard
+            </h1>
+            <p>
+                <i class="fas fa-database"></i>
+                Analyzing <code>pt-stalk</code> output files for MySQL status variable trends
+            </p>
+        </div>
         
         {{range $comparisonGroup := .ChartComparisons}}
         <div class="comparison-group-section">
-            <h2 class="comparison-group-title">{{$comparisonGroup.Prefix}} Variables</h2>
+            <h2 class="comparison-group-title">
+                <i class="fas fa-layer-group"></i>
+                {{$comparisonGroup.Prefix}} Variables
+            </h2>
             
             <div class="charts-row-container">
                 {{range $chartForServer := $comparisonGroup.Charts}}
                 <div class="chart-item-col">
-                    <h3>{{$chartForServer.ServerName}}</h3>
+                    <h3>
+                        <i class="fas fa-server"></i>
+                        {{$chartForServer.ServerName}}
+                    </h3>
                     
-                    <canvas id="{{$comparisonGroup.Prefix}}-{{$chartForServer.ServerName}}Chart" width="400" height="200"></canvas>
+                    {{if len $chartForServer.DataPoints}}
+                    <div class="chart-container" id="{{$comparisonGroup.Prefix}}-{{$chartForServer.ServerName}}-chart"></div>
                     
-                    <table>
+                    <table class="stats-table">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Max</th>
-                                <th>Min</th>
-                                <th>Avg</th>
+                                <th><i class="fas fa-tag"></i> Variable Name</th>
+                                <th><i class="fas fa-arrow-up"></i> Max</th>
+                                <th><i class="fas fa-arrow-down"></i> Min</th>
+                                <th><i class="fas fa-calculator"></i> Avg</th>
                             </tr>
                         </thead>
                         <tbody>
                             {{range .DataPoints}}
                             <tr>
-                                <td>{{.Name}}</td>
-                                <td>{{.Max}}</td>
-                                <td>{{.Min}}</td>
-                                <td>{{formatAvg .Avg}}</td>
+                                <td><code>{{.Name}}</code></td>
+                                <td><span class="badge badge-max">{{.Max}}</span></td>
+                                <td><span class="badge badge-min">{{.Min}}</span></td>
+                                <td><span class="badge badge-avg">{{formatAvg .Avg}}</span></td>
                             </tr>
                             {{end}}
                         </tbody>
                     </table>
+                    {{else}}
+                    <div class="empty-state">
+                        <i class="fas fa-inbox"></i>
+                        <p>No data available for this server</p>
+                    </div>
+                    {{end}}
                 </div>
-                <script>
-                    console.log("Creating chart for: {{$comparisonGroup.Prefix}} - {{$chartForServer.ServerName}}");
-                    var canvasElement = document.getElementById('{{$comparisonGroup.Prefix}}-{{$chartForServer.ServerName}}Chart');
-                    var ctx = canvasElement.getContext('2d');
-                    
-                    var labels = {{toJSON $.Labels}}; 
-
-                    var datasets = [
-                        {{range $index, $element := $chartForServer.DataPoints}}
-                        {
-                            label: {{js $element.Name}},
-                            data: [{{range $element.Values}}{{.}},{{end}}],
-                            borderColor: "hsl({{multiply $index 30}}, 70%, 50%)",
-                            backgroundColor: "hsla({{multiply $index 30}}, 70%, 50%, 0.2)",
-                            fill: true,
-                            borderWidth: 1,
-                            tension: 0.4,
-                            pointRadius: 0,
-                            pointHoverRadius: 4,
-                            pointBackgroundColor: "hsl({{multiply $index 30}}, 70%, 50%)"
-                        },
-                        {{end}}
-                    ];
-
-                    var myChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: datasets
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                y: {
-                                    beginAtZero: false,
-                                    title: {
-                                        display: true,
-                                        text: 'Value / Delta'
-                                    }
-                                },
-                                x: {
-                                    title: {
-                                        display: true,
-                                        text: 'Time Snapshot'
-                                    }
-                                }
-                            },
-                            plugins: {
-                                tooltip: {
-                                    mode: 'index',
-                                    intersect: false,
-                                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                                    borderColor: 'rgba(0, 0, 0, 0.1)',
-                                    borderWidth: 1,
-                                    bodyColor: '#333',
-                                    titleColor: '#333',
-                                    bodyFont: {
-                                        size: 10
-                                    },
-                                    bodySpacing: 2,
-                                    padding: 8,
-                                    displayColors: false,
-                                    callbacks: {
-                                        label: function(tooltipItem) {
-                                            return tooltipItem.dataset.label + ': ' + tooltipItem.raw;
-                                        },
-                                        itemSort: function(itemA, itemB, data) {
-                                            const labelA = data.datasets[itemA.datasetIndex].label;
-                                            const labelB = data.datasets[itemB.datasetIndex].label;
-                                            return labelA.localeCompare(labelB);
-                                        }
-                                    }
-                                },
-                                legend: {
-                                    display: true,
-                                    position: 'bottom',
-                                    labels: {
-                                        boxWidth: 15,
-                                        padding: 10
-                                    }
-                                }
-                            },
-                            onClick: function(event, elements) {
-                                if (elements.length > 0) {
-                                    const datasetIndex = elements[0].datasetIndex;
-                                    const dataset = this.data.datasets[datasetIndex];
-                                    dataset.hidden = !dataset.hidden;
-                                    this.update();
-                                }
-                            }
-                        }
-                    });
-                </script>
                 {{end}}
             </div>
         </div>
         {{end}}
     </div>
+
+    <script>
+        // Color palette for charts
+        const colorPalette = [
+            '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+            '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#ff9f7f',
+            '#ffdb5c', '#ff6e76', '#e690d1', '#7cffb2', '#ffa07a'
+        ];
+
+        // Generate ECharts configuration
+        function createChartConfig(chartId, labels, datasets, serverName) {
+            const series = datasets.map((dataset, index) => ({
+                name: dataset.label,
+                type: 'line',
+                data: dataset.data,
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 6,
+                lineStyle: {
+                    width: 2.5,
+                    color: colorPalette[index % colorPalette.length]
+                },
+                itemStyle: {
+                    color: colorPalette[index % colorPalette.length],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                },
+                areaStyle: {
+                    opacity: 0.1,
+                    color: {
+                        type: 'linear',
+                        x: 0,
+                        y: 0,
+                        x2: 0,
+                        y2: 1,
+                        colorStops: [{
+                            offset: 0,
+                            color: colorPalette[index % colorPalette.length]
+                        }, {
+                            offset: 1,
+                            color: 'rgba(255, 255, 255, 0)'
+                        }]
+                    }
+                },
+                emphasis: {
+                    focus: 'series',
+                    lineStyle: {
+                        width: 3
+                    }
+                }
+            }));
+
+            return {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross',
+                        label: {
+                            backgroundColor: '#6a7985'
+                        }
+                    },
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#ccc',
+                    borderWidth: 1,
+                    textStyle: {
+                        color: '#333'
+                    },
+                    formatter: function(params) {
+                        let result = '<div style="padding: 5px;"><strong>' + params[0].axisValue + '</strong><br/>';
+                        params.forEach(function(item) {
+                            result += '<span style="display:inline-block;margin-right:5px;border-radius:10px;width:10px;height:10px;background-color:' + item.color + ';"></span>';
+                            result += item.seriesName + ': <strong>' + item.value + '</strong><br/>';
+                        });
+                        result += '</div>';
+                        return result;
+                    }
+                },
+                legend: {
+                    data: datasets.map(d => d.label),
+                    bottom: 10,
+                    type: 'scroll',
+                    textStyle: {
+                        fontSize: 12
+                    }
+                },
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '15%',
+                    top: '10%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    boundaryGap: false,
+                    data: labels,
+                    axisLine: {
+                        lineStyle: {
+                            color: '#999'
+                        }
+                    },
+                    axisLabel: {
+                        color: '#666',
+                        rotate: 45
+                    }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLine: {
+                        lineStyle: {
+                            color: '#999'
+                        }
+                    },
+                    axisLabel: {
+                        color: '#666',
+                        formatter: function(value) {
+                            if (value >= 1000000) {
+                                return (value / 1000000).toFixed(1) + 'M';
+                            } else if (value >= 1000) {
+                                return (value / 1000).toFixed(1) + 'K';
+                            }
+                            return value;
+                        }
+                    },
+                    splitLine: {
+                        lineStyle: {
+                            type: 'dashed',
+                            color: '#e0e0e0'
+                        }
+                    }
+                },
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        start: 0,
+                        end: 100
+                    },
+                    {
+                        type: 'slider',
+                        start: 0,
+                        end: 100,
+                        height: 20,
+                        bottom: 10
+                    }
+                ],
+                series: series,
+                animation: true,
+                animationDuration: 1000,
+                animationEasing: 'cubicOut'
+            };
+        }
+
+        // Initialize all charts
+        document.addEventListener('DOMContentLoaded', function() {
+            {{range $comparisonGroup := .ChartComparisons}}
+            {{range $chartForServer := $comparisonGroup.Charts}}
+            {{if len $chartForServer.DataPoints}}
+            {
+                const chartId = '{{$comparisonGroup.Prefix}}-{{$chartForServer.ServerName}}-chart';
+                const chartElement = document.getElementById(chartId);
+                
+                if (chartElement) {
+                    const labels = {{toJSON $.Labels}};
+                    const datasets = [
+                        {{$len := len $chartForServer.DataPoints}}
+                        {{range $index, $element := $chartForServer.DataPoints}}
+                        {
+                            label: {{js $element.Name}},
+                            data: [{{range $element.Values}}{{.}},{{end}}]
+                        }{{if lt $index (sub $len 1)}},{{end}}
+                        {{end}}
+                    ];
+                    
+                    const chart = echarts.init(chartElement);
+                    const option = createChartConfig(chartId, labels, datasets, '{{$chartForServer.ServerName}}');
+                    chart.setOption(option);
+                    
+                    // Handle window resize
+                    window.addEventListener('resize', function() {
+                        chart.resize();
+                    });
+                }
+            }
+            {{end}}
+            {{end}}
+            {{end}}
+        });
+    </script>
 </body>
 </html>
